@@ -1762,10 +1762,13 @@ transcribe_status whisper_run(transcribe_session *          session,
         // audio. Encode the real frames plus a margin of padding, rounded up to
         // a bucket so graph shapes repeat, instead of all 3000 frames. The
         // chunk_mel rows are frame-major, so a shorter window is a prefix.
-        // Off unless TRANSCRIBE_WHISPER_DYN_CTX=1 (it trades accuracy for speed).
+        // The window never drops under 15 s by default: measured on Hebrew and
+        // English clips, shorter windows start to cost accuracy.
+        // TRANSCRIBE_WHISPER_DYN_CTX=0 restores the full window.
         int enc_frames = n_mel_frames_per_chunk;
         if (is_short_form && !mel_from_ref) {
-            if (transcribe::env::flag("TRANSCRIBE_WHISPER_DYN_CTX")) {
+            const char * dyn = transcribe::env::str("TRANSCRIBE_WHISPER_DYN_CTX");
+            if (dyn == nullptr || dyn[0] != '0') {
                 auto env_ms = [](const char * name, int def_ms) {
                     const char * v = transcribe::env::str(name);
                     if (v == nullptr) {
@@ -1775,7 +1778,7 @@ transcribe_status whisper_run(transcribe_session *          session,
                     return x > 0 ? x : def_ms;
                 };
                 const int margin_frames = env_ms("TRANSCRIBE_WHISPER_CTX_MARGIN_MS", 1000) / 10;
-                const int min_frames    = env_ms("TRANSCRIBE_WHISPER_CTX_MIN_MS", 5000) / 10;
+                const int min_frames    = env_ms("TRANSCRIBE_WHISPER_CTX_MIN_MS", 15000) / 10;
                 const int bucket_frames = std::max(2, env_ms("TRANSCRIBE_WHISPER_CTX_BUCKET_MS", 1000) / 10);
                 const int samples_per_frame = std::max(1, n_samples_per_chunk / n_mel_frames_per_chunk);
                 const int real_frames       = (n_samples + samples_per_frame - 1) / samples_per_frame;
