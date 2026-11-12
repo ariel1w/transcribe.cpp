@@ -1757,11 +1757,42 @@ transcribe_status whisper_run(transcribe_session *          session,
         std::memcpy(chunk_mel.data(), &cc->mel_buf[static_cast<size_t>(seek) * static_cast<size_t>(n_mels)],
                     static_cast<size_t>(frames_avail) * static_cast<size_t>(n_mels) * sizeof(float));
 
+        // LOCAL PATCH (dynamic audio context): a short-form clip is padded to a
+        // 30 s window, but the encoder only needs the frames that hold real
+        // audio. Encode the real frames plus a margin of padding, rounded up to
+        // a bucket so graph shapes repeat, instead of all 3000 frames. The
+        // chunk_mel rows are frame-major, so a shorter window is a prefix.
+        // TRANSCRIBE_WHISPER_DYN_CTX=0 restores the full window.
+        int enc_frames = n_mel_frames_per_chunk;
+        if (is_short_form && !mel_from_ref) {
+            const char * dyn = transcribe::env::str("TRANSCRIBE_WHISPER_DYN_CTX");
+            if (dyn == nullptr || dyn[0] != '0') {
+                auto env_ms = [](const char * name, int def_ms) {
+                    const char * v = transcribe::env::str(name);
+                    if (v == nullptr) {
+                        return def_ms;
+                    }
+                    const int x = std::atoi(v);
+                    return x > 0 ? x : def_ms;
+                };
+                const int margin_frames = env_ms("TRANSCRIBE_WHISPER_CTX_MARGIN_MS", 1000) / 10;
+                const int min_frames    = env_ms("TRANSCRIBE_WHISPER_CTX_MIN_MS", 5000) / 10;
+                const int bucket_frames = std::max(2, env_ms("TRANSCRIBE_WHISPER_CTX_BUCKET_MS", 1000) / 10);
+                const int samples_per_frame = std::max(1, n_samples_per_chunk / n_mel_frames_per_chunk);
+                const int real_frames       = (n_samples + samples_per_frame - 1) / samples_per_frame;
+                int       want              = real_frames + margin_frames;
+                want                        = ((want + bucket_frames - 1) / bucket_frames) * bucket_frames;
+                want                        = std::max(want, min_frames);
+                want                        += (want & 1);
+                enc_frames                  = std::min(want, n_mel_frames_per_chunk);
+            }
+        }
+
         // Encoder (per chunk). enc_host is rewritten per call.
         int           T_enc_local = 0;
         const int64_t t_enc_start = ggml_time_us();
         if (const transcribe_status st =
-                run_whisper_encoder_on_window(cc, cm, chunk_mel.data(), n_mels, n_mel_frames_per_chunk,
+                run_whisper_encoder_on_window(cc, cm, chunk_mel.data(), n_mels, enc_frames,
                                               /*allow_dumps=*/is_first_chunk, T_enc_local);
             st != TRANSCRIBE_OK) {
             return st;

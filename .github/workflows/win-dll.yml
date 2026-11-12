@@ -1,0 +1,34 @@
+name: win-dll
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [dynctx-v0.4.0]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        shell: pwsh
+        run: >
+          cmake -B build -A x64
+          -DTRANSCRIBE_INSTALL=ON -DTRANSCRIBE_BUILD_TESTS=OFF
+          -DTRANSCRIBE_BUILD_EXAMPLES=OFF -DTRANSCRIBE_BUILD_TOOLS=OFF
+          -DTRANSCRIBE_BUILD_SHARED=ON -DTRANSCRIBE_GGML_BACKEND_DL=ON
+          -DGGML_CPU_ALL_VARIANTS=ON -DTRANSCRIBE_X86_CONSERVATIVE=ON
+          -DTRANSCRIBE_USE_OPENMP=OFF
+          "-DCMAKE_C_FLAGS_RELEASE=/MD /O2 /Ob2 /DNDEBUG"
+          "-DCMAKE_CXX_FLAGS_RELEASE=/MD /O2 /Ob2 /DNDEBUG"
+      - name: Build
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 4
+      - name: Collect DLLs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Get-ChildItem build -Recurse -Filter *.dll | Where-Object { $_.FullName -match 'Release' } | Copy-Item -Destination out -Force
+          Get-ChildItem out | Select-Object Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transcribe-dlls
+          path: out/*.dll
