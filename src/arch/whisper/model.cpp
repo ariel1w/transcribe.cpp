@@ -1762,11 +1762,10 @@ transcribe_status whisper_run(transcribe_session *          session,
         // audio. Encode the real frames plus a margin of padding, rounded up to
         // a bucket so graph shapes repeat, instead of all 3000 frames. The
         // chunk_mel rows are frame-major, so a shorter window is a prefix.
-        // TRANSCRIBE_WHISPER_DYN_CTX=0 restores the full window.
+        // Off unless TRANSCRIBE_WHISPER_DYN_CTX=1 (it trades accuracy for speed).
         int enc_frames = n_mel_frames_per_chunk;
         if (is_short_form && !mel_from_ref) {
-            const char * dyn = transcribe::env::str("TRANSCRIBE_WHISPER_DYN_CTX");
-            if (dyn == nullptr || dyn[0] != '0') {
+            if (transcribe::env::flag("TRANSCRIBE_WHISPER_DYN_CTX")) {
                 auto env_ms = [](const char * name, int def_ms) {
                     const char * v = transcribe::env::str(name);
                     if (v == nullptr) {

@@ -1,8 +1,6 @@
 name: win-dll
 on:
   workflow_dispatch: {}
-  push:
-    branches: [dynctx-v0.4.0]
 jobs:
   build:
     runs-on: windows-latest
